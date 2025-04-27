@@ -1865,9 +1865,7 @@ Warnings:
 Warning	1441	Datetime function: time field overflow
 select cast('131415.123e0' as time);
 cast('131415.123e0' as time)
-NULL
-Warnings:
-Warning	1292	Incorrect time value: '131415.123e0'
+13:14:15
 select cast('2010-01-02 03:04:05' as datetime) between null and '2010-01-02 03:04:04' as exp;
 exp
 0

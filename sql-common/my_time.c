@@ -894,7 +894,79 @@ str_to_datetime_or_date(const char *str, size_t length, MYSQL_TIME *l_time,
     set_neg(neg, status, l_time);
 }
 
+/**
+  Check if a string represents a valid scientific notation number.
 
+  Rules:
+  - Must contain an exponent part ('e' or 'E')
+  - At least one digit before exponent
+  - Exponent must have at least one digit
+  - Optional leading/trailing whitespace
+  - Optional signs (+/-) for mantissa and exponent
+
+  @param str      Input string
+  @param length   Length of the string
+
+  @return my_bool FALSE if valid scientific number, TRUE otherwise
+*/
+static my_bool
+is_valid_scientific_number(const char *str, size_t length)
+{
+  const char *end= str + length;
+  my_bool found_digit= FALSE;
+  my_bool exponent_has_digit= FALSE;
+
+  while (str < end && my_isspace(&my_charset_latin1, *str))
+    str++;
+
+  if (str < end && (*str == '+' || *str == '-'))
+    str++;
+
+  while (str < end && my_isdigit(&my_charset_latin1, *str))
+  {
+    found_digit= TRUE;
+    str++;
+  }
+
+  if (str < end && *str == '.')
+  {
+    str++;
+    while (str < end && my_isdigit(&my_charset_latin1, *str))
+    {
+      found_digit= TRUE;
+      str++;
+    }
+  }
+
+  if (!found_digit)
+    return TRUE;
+
+  if (str < end && (*str == 'e' || *str == 'E'))
+  {
+    str++;
+  }
+  else
+  {
+    return TRUE;
+  }
+
+  if (str < end && (*str == '+' || *str == '-'))
+    str++;
+
+  while (str < end && my_isdigit(&my_charset_latin1, *str))
+  {
+    exponent_has_digit= TRUE;
+    str++;
+  }
+
+  if (!exponent_has_digit)
+    return TRUE;
+
+  while (str < end && my_isspace(&my_charset_latin1, *str))
+    str++;
+
+  return (str != end);
+}
 
 /**
   Convert a string to INTERVAL DAY TO SECOND.
@@ -922,15 +994,29 @@ str_to_DDhhmmssff_internal(my_bool neg, const char *str, size_t length,
                            ulong max_hour, ulong err_hour,
                            MYSQL_TIME_STATUS *status, const char **endptr)
 {
+  static const ulonglong TIME_MAX_mmss= TIME_MAX_MINUTE*100 + TIME_MAX_SECOND;
+  ulonglong time_max_value= max_hour * 10000ULL + TIME_MAX_mmss;
   ulong date[5];
   ulonglong value;
   const char *end=str + length, *end_of_days;
+  char *end_parse = (char*)str;
+  char *tmp = strndup(str, length);
   my_bool found_days, found_hours;
   uint UNINIT_VAR(state);
-
+  int conv_err;
   *endptr= str;
   l_time->neg= neg;
   /* Not a timestamp. Try to get this as a DAYS TO SECOND string */
+  if (!is_valid_scientific_number(str, length))
+  {
+    value= strtod(tmp, &end_parse);
+    str= end;
+    if (value > time_max_value)
+    {
+      value= time_max_value;
+    }
+  }
+  else
   for (value=0; str != end && my_isdigit(&my_charset_latin1,*str) ; str++)
   {
     value=value*10L + (long) (*str - '0');
