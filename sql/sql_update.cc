@@ -361,6 +361,7 @@ bool Sql_cmd_update::update_single_table(THD *thd)
   bool          used_key_is_modified= FALSE, transactional_table;
   bool          will_batch= FALSE;
   bool		can_compare_record;
+  bool          binlogged= 0;
   int           res;
   int		error, loc_error;
   ha_rows       dup_key_found;
@@ -1275,7 +1276,8 @@ update_end:
   if (likely(error < 0) || thd->transaction->stmt.modified_non_trans_table ||
       thd->log_current_statement())
   {
-    if (WSREP_EMULATE_BINLOG(thd) || mysql_bin_log.is_open())
+    if ((WSREP_EMULATE_BINLOG(thd) || mysql_bin_log.is_open()) &&
+        table->s->using_binlog())
     {
       int errcode= 0;
       if (likely(error < 0))
@@ -1291,8 +1293,12 @@ update_end:
       {
         error=1;				// Rollback update
       }
+      binlogged= 1;
     }
   }
+  if (!binlogged)
+    table->mark_as_not_binlogged();
+
   DBUG_ASSERT(transactional_table || !updated || thd->transaction->stmt.modified_non_trans_table);
   free_underlaid_joins(thd, select_lex);
   delete file_sort;
@@ -1666,7 +1672,7 @@ bool Multiupdate_prelocking_strategy::handle_end(THD *thd)
 
   if (setup_tables_and_check_access(thd, &select_lex->context,
       &select_lex->top_join_list, table_list, select_lex->leaf_tables,
-      FALSE, UPDATE_ACL, SELECT_ACL, TRUE))
+      false, UPDATE_ACL, SELECT_ACL, true))
     DBUG_RETURN(1);
 
   if (table_list->has_period() &&
@@ -2243,13 +2249,9 @@ loop_end:
     tmp_param->field_count= temp_fields.elements;
     tmp_param->func_count=  temp_fields.elements - 1;
     calc_group_buffer(tmp_param, &group);
-    /* small table, ignore @@big_tables */
-    my_bool save_big_tables= thd->variables.big_tables; 
-    thd->variables.big_tables= FALSE;
     tmp_tables[index]=create_tmp_table(thd, tmp_param, temp_fields,
                                      (ORDER*) &group, 0, 0,
                                      TMP_TABLE_ALL_COLUMNS, HA_POS_ERROR, &empty_clex_str);
-    thd->variables.big_tables= save_big_tables;
     if (!tmp_tables[index])
       DBUG_RETURN(1);
     tmp_tables[index]->file->extra(HA_EXTRA_WRITE_CACHE);
@@ -2526,10 +2528,12 @@ error:
 
 void multi_update::abort_result_set()
 {
+  TABLE_LIST *cur_table;
+
   /* the error was handled or nothing deleted and no side effects return */
   if (unlikely(error_handled ||
                (!thd->transaction->stmt.modified_non_trans_table && !updated)))
-    return;
+    goto end;
 
   /****************************************************************************
 
@@ -2581,6 +2585,15 @@ void multi_update::abort_result_set()
   thd->transaction->all.m_unsafe_rollback_flags|=
     (thd->transaction->stmt.m_unsafe_rollback_flags & THD_TRANS::DID_WAIT);
   DBUG_ASSERT(trans_safe || !updated || thd->transaction->stmt.modified_non_trans_table);
+
+end:
+  /*
+    Mark all temporay tables as not completely binlogged
+    All future usage of these tables will enforce row level logging, which
+    ensures that all future usage of them enforces row level logging.
+  */
+  for (cur_table= update_tables; cur_table; cur_table= cur_table->next_local)
+    cur_table->table->mark_as_not_binlogged();
 }
 
 

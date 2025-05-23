@@ -206,6 +206,7 @@ void _CONCAT_UNDERSCORED(turn_parser_debug_on,yyparse)()
 
   /* structs */
   LEX_CSTRING lex_str;
+  Lex_comment_st lex_comment;
   Lex_ident_cli_st kwd;
   Lex_ident_cli_st ident_cli;
   Lex_ident_sys_st ident_sys;
@@ -278,6 +279,7 @@ void _CONCAT_UNDERSCORED(turn_parser_debug_on,yyparse)()
   TABLE_LIST *table_list;
   Table_ident *table;
   Qualified_column_ident *qualified_column_ident;
+  Optimizer_hint_parser_output *opt_hints;
   char *simple_string;
   const char *const_simple_string;
   chooser_compare_func_creator boolfunc2creator;
@@ -358,9 +360,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 */
 
 %ifdef MARIADB
-%expect 62
-%else
 %expect 63
+%else
+%expect 64
 %endif
 
 /*
@@ -384,6 +386,8 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 
 
 %token <lex_str> '@'
+
+%token HINT_COMMENT
 
 /*
   Special purpose tokens
@@ -448,7 +452,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 /*
   Reserved keywords
 */
-%token  <kwd> ACCESSIBLE_SYM
 %token  <kwd> ADD                           /* SQL-2003-R */
 %token  <kwd> ALL                           /* SQL-2003-R */
 %token  <kwd> ALTER                         /* SQL-2003-R */
@@ -661,7 +664,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd> SELECT_SYM                    /* SQL-2003-R */
 %token  <kwd> SENSITIVE_SYM                 /* FUTURE-USE */
 %token  <kwd> SEPARATOR_SYM
-%token  <kwd> SERVER_OPTIONS
 %token  <kwd> SET                           /* SQL-2003-R */
 %token  <kwd> SHOW
 %token  <kwd> SIGNAL_SYM                    /* SQL-2003-R */
@@ -684,7 +686,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd> STRAIGHT_JOIN
 %token  <kwd> SUM_SYM                       /* SQL-2003-N */
 %token  <kwd> SYSDATE
-%token  <kwd> TABLE_REF_PRIORITY
 %token  <kwd> TABLE_SYM                     /* SQL-2003-R */
 %token  <kwd> TERMINATED
 %token  <kwd> THEN_SYM                      /* SQL-2003-R */
@@ -767,7 +768,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  AT_SYM                        /* SQL-2003-R */
 %token  <kwd>  ATOMIC_SYM                    /* SQL-2003-R */
 %token  <kwd>  AUTHORS_SYM
-%token  <kwd>  AUTOEXTEND_SIZE_SYM
+%token  <kwd>  AUTHORIZATION_SYM             /* SQL-2003-R */
 %token  <kwd>  AUTO_INC
 %token  <kwd>  AUTO_SYM
 %token  <kwd>  AVG_ROW_LENGTH
@@ -829,7 +830,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  CURRENT_POS_SYM
 %token  <kwd>  CURSOR_NAME_SYM               /* SQL-2003-N */
 %token  <kwd>  CYCLE_SYM
-%token  <kwd>  DATAFILE_SYM
 %token  <kwd>  DATA_SYM                      /* SQL-2003-N */
 %token  <kwd>  DATETIME
 %token  <kwd>  DATE_SYM                      /* SQL-2003-R, Oracle-R, PLSQL-R */
@@ -908,7 +908,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  IMPORT
 %token  <kwd>  INCREMENT_SYM
 %token  <kwd>  INDEXES
-%token  <kwd>  INITIAL_SIZE_SYM
 %token  <kwd>  INSERT_METHOD
 %token  <kwd>  INSTALL_SYM
 %token  <kwd>  INVOKER_SYM
@@ -931,7 +930,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  LOCAL_SYM                     /* SQL-2003-R */
 %token  <kwd>  LOCKED_SYM
 %token  <kwd>  LOCKS_SYM
-%token  <kwd>  LOGFILE_SYM
 %token  <kwd>  LOGS_SYM
 %token  <kwd>  MASTER_CONNECT_RETRY_SYM
 %token  <kwd>  MASTER_DELAY_SYM
@@ -959,7 +957,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  MAX_CONNECTIONS_PER_HOUR
 %token  <kwd>  MAX_QUERIES_PER_HOUR
 %token  <kwd>  MAX_ROWS
-%token  <kwd>  MAX_SIZE_SYM
 %token  <kwd>  MAX_UPDATES_PER_HOUR
 %token  <kwd>  MAX_STATEMENT_TIME_SYM
 %token  <kwd>  MAX_USER_CONNECTIONS_SYM
@@ -994,7 +991,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  NO_SYM                        /* SQL-2003-R */
 %token  <kwd>  NOMAXVALUE_SYM
 %token  <kwd>  NOMINVALUE_SYM
-%token  <kwd>  NO_WAIT_SYM
 %token  <kwd>  NOWAIT_SYM
 %token  <kwd>  NUMBER_MARIADB_SYM            /* SQL-2003-N  */
 %token  <kwd>  NUMBER_ORACLE_SYM             /* Oracle-R, PLSQL-R */
@@ -1043,8 +1039,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  READ_ONLY_SYM
 %token  <kwd>  REBUILD_SYM
 %token  <kwd>  RECOVER_SYM
-%token  <kwd>  REDOFILE_SYM
-%token  <kwd>  REDO_BUFFER_SIZE_SYM
 %token  <kwd>  REDUNDANT_SYM
 %token  <kwd>  RELAY
 %token  <kwd>  RELAYLOG_SYM
@@ -1061,7 +1055,6 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  RESET_SYM
 %token  <kwd>  RESTART_SYM
 %token  <kwd>  RESOURCES
-%token  <kwd>  RESTORE_SYM
 %token  <kwd>  RESUME_SYM
 %token  <kwd>  RETURNED_SQLSTATE_SYM         /* SQL-2003-N */
 %token  <kwd>  RETURNS_SYM                   /* SQL-2003-R */
@@ -1150,12 +1143,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  TRIM_ORACLE
 %token  <kwd>  TRUNCATE_SYM
 %token  <kwd>  TYPE_SYM                      /* SQL-2003-N */
-%token  <kwd>  UDF_RETURNS_SYM
 %token  <kwd>  UNBOUNDED_SYM                 /* SQL-2011-N */
 %token  <kwd>  UNCOMMITTED_SYM               /* SQL-2003-N */
 %token  <kwd>  UNDEFINED_SYM
-%token  <kwd>  UNDOFILE_SYM
-%token  <kwd>  UNDO_BUFFER_SIZE_SYM
 %token  <kwd>  UNICODE_SYM
 %token  <kwd>  UNINSTALL_SYM
 %token  <kwd>  UNKNOWN_SYM                   /* SQL-2003-R */
@@ -1199,7 +1189,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 
 %left   PREC_BELOW_NOT
 
-/* The precendence of boolean NOT is in fact here. See the comment below. */
+/* The precedence of boolean NOT is in fact here. See the comment below. */
 
 %left   '=' EQUAL_SYM GE '>' LE '<' NE
 %nonassoc IS
@@ -1253,7 +1243,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 
   - SYSTEM: identifier, system versioning:
       SELECT system FROM t1;
-      ALTER TABLE DROP SYSTEM VERSIONIONG;
+      ALTER TABLE DROP SYSTEM VERSIONING;
 
   - USER: identifier, user:
       SELECT user FROM t1;
@@ -1333,6 +1323,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %left   TEXT_STRING '(' ')' VALUE_SYM VERSIONING_SYM BODY_MARIADB_SYM OF_SYM
 %left EMPTY_FROM_CLAUSE
 %right INTO
+
+%type <lex_comment>
+        HINT_COMMENT opt_hint_comment
 
 %type <lex_str>
         DECIMAL_NUM FLOAT_NUM NUM LONG_NUM
@@ -1598,6 +1591,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %type <expr_lex>
         expr_lex
 
+%type <opt_hints>
+        opt_optimizer_hint
+
 %destructor
 {
   /*
@@ -1717,6 +1713,7 @@ rule:
 
 %type <lex_user> user grant_user grant_role user_or_role current_role
                  admin_option_for_role user_maybe_role role_name
+                 user_name
 
 %type <user_auth> opt_auth_str auth_expression auth_token
                   text_or_password
@@ -5879,7 +5876,7 @@ create_table_option:
             Lex->create_info.used_fields|= HA_CREATE_USED_INDEXDIR;
           }
         | TABLESPACE ident
-          { /* Compatiblity with MySQL */ }
+          { /* Compatibility with MySQL */ }
         | STORAGE_SYM DISK_SYM
           {Lex->create_info.storage_media= HA_SM_DISK;}
         | STORAGE_SYM MEMORY_SYM
@@ -7447,7 +7444,7 @@ alter:
           {
             if (likely(!Lex->m_sql_cmd))
             {
-              /* Create a generic ALTER TABLE statment. */
+              /* Create a generic ALTER TABLE statement. */
               Lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_alter_table();
               if (unlikely(Lex->m_sql_cmd == NULL))
                 MYSQL_YYABORT;
@@ -7534,7 +7531,7 @@ alter:
               MYSQL_YYABORT;
             /*
               It is safe to use Lex->spname because
-              ALTER EVENT xxx RENATE TO yyy DO ALTER EVENT RENAME TO
+              ALTER EVENT xxx RENAME TO yyy DO ALTER EVENT RENAME TO
               is not allowed. Lex->spname is used in the case of RENAME TO
               If it had to be supported spname had to be added to
               Event_parse_data.
@@ -7601,7 +7598,7 @@ alter:
           }
           sequence_defs
           {
-            /* Create a generic ALTER SEQUENCE statment. */
+            /* Create a generic ALTER SEQUENCE statement. */
             Lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_alter_sequence($3);
             if ((Lex->create_info.seq_create_info->used_fields &
                  seq_field_used_as) &&
@@ -8964,14 +8961,32 @@ table_value_constructor:
 	  }
 	;
 
+opt_hint_comment:
+          /*empty */   { $$.init(); }
+        | HINT_COMMENT { $$= $1; }
+        ;
+
+opt_optimizer_hint:
+          { YYLIP->hint_comment= true; }
+          opt_hint_comment
+          {
+            YYLIP->hint_comment= false;
+            std::pair<bool, Optimizer_hint_parser_output *> parse_res=
+              Lex->parse_optimizer_hints($2);
+            if (!($$= parse_res.second) && parse_res.first)
+              MYSQL_YYABORT;
+          }
+        ;
+
 query_specification_start:
-          SELECT_SYM
+          SELECT_SYM opt_optimizer_hint
           {
             SELECT_LEX *sel;
             LEX *lex= Lex;
             if (!(sel= lex->alloc_select(TRUE)) || lex->push_select(sel))
               MYSQL_YYABORT;
             sel->init_select();
+            sel->set_optimizer_hints($2);
             sel->braces= FALSE;
           }
           select_options
@@ -8992,6 +9007,7 @@ query_specification:
           opt_having_clause
           opt_window_clause
           {
+            Lex->resolve_optimizer_hints_in_last_select();
             $$= Lex->pop_select();
           }
         ;
@@ -9005,6 +9021,7 @@ select_into_query_specification:
           opt_having_clause
           opt_window_clause
           {
+            Lex->resolve_optimizer_hints_in_last_select();
             $$= Lex->pop_select();
           }
         ;
@@ -10158,7 +10175,7 @@ trim_operands_special:
   - the collation of the column `a`, or
   - the collation of the string literal 'a'
 
-  This restriction allows to parse the above query unambiguiusly:
+  This restriction allows to parse the above query unambiguously:
   COLLATE belongs to the column rather than the literal.
   If one needs COLLATE to belong to the literal, parentheses must be used:
     CREATE TABLE t1 (a TEXT DEFAULT ('a' COLLATE latin1_bin));
@@ -13248,7 +13265,7 @@ procedure_clause:
             /*
               PROCEDURE CLAUSE cannot handle subquery as one of its parameter,
               so disallow any subqueries further.
-              Alow subqueries back once the parameters are reduced.
+              Allow subqueries back once the parameters are reduced.
             */
             Lex->clause_that_disallows_subselect= "PROCEDURE";
             Select->options|= OPTION_PROCEDURE_CLAUSE;
@@ -13575,7 +13592,7 @@ opt_temporary:
 */
 
 insert:
-          INSERT
+          INSERT opt_optimizer_hint
           {
             Lex->sql_command= SQLCOM_INSERT;
             Lex->duplicates= DUP_ERROR;
@@ -13584,18 +13601,20 @@ insert:
           }
           insert_start insert_lock_option opt_ignore opt_into insert_table
           {
-            Select->set_lock_for_tables($4, true, false);
+            Lex->first_select_lex()->set_optimizer_hints($2);
+            Select->set_lock_for_tables($5, true, false);
           }
           insert_field_spec opt_insert_update opt_returning
-          stmt_end
+          insert_stmt_end
           {
+            Lex->resolve_optimizer_hints_in_last_select();
             Lex->mark_first_table_as_inserting();
             thd->get_stmt_da()->reset_current_row_for_warning(0);
           }
           ;
 
 replace:
-          REPLACE
+          REPLACE opt_optimizer_hint
           {
             Lex->sql_command = SQLCOM_REPLACE;
             Lex->duplicates= DUP_REPLACE;
@@ -13604,11 +13623,13 @@ replace:
           }
           insert_start replace_lock_option opt_into insert_table
           {
-            Select->set_lock_for_tables($4, true, false);
+            Lex->first_select_lex()->set_optimizer_hints($2);
+            Select->set_lock_for_tables($5, true, false);
           }
           insert_field_spec opt_returning
-          stmt_end
+          insert_stmt_end
           {
+            Lex->resolve_optimizer_hints_in_last_select();
             Lex->mark_first_table_as_inserting();
             thd->get_stmt_da()->reset_current_row_for_warning(0);
           }
@@ -13624,6 +13645,14 @@ insert_start: {
               ;
 
 stmt_end: {
+              Lex->resolve_optimizer_hints_in_last_select();
+              Lex->pop_select(); //main select
+              if (Lex->check_main_unit_semantics())
+                MYSQL_YYABORT;
+            }
+            ;
+
+insert_stmt_end: {
               Lex->pop_select(); //main select
               if (Lex->check_main_unit_semantics())
                 MYSQL_YYABORT;
@@ -13879,12 +13908,13 @@ update_table_list:
 /* Update rows in a table */
 
 update:
-          UPDATE_SYM
+          UPDATE_SYM opt_optimizer_hint
           {
             LEX *lex= Lex;
             if (Lex->main_select_push())
               MYSQL_YYABORT;
             lex->init_select();
+            Lex->first_select_lex()->set_optimizer_hints($2);
             lex->sql_command= SQLCOM_UPDATE;
             lex->duplicates= DUP_ERROR; 
           }
@@ -13914,12 +13944,12 @@ update:
               be too pessimistic. We will decrease lock level if possible
               later while processing the statement.
             */
-            slex->set_lock_for_tables($3, slex->table_list.elements == 1, false);
+            slex->set_lock_for_tables($4, slex->table_list.elements == 1, false);
           }
           opt_where_clause opt_order_clause delete_limit_clause
           {
-            if ($10)
-              Select->order_list= *($10);
+            if ($11)
+              Select->order_list= *($11);
           } stmt_end {}
         ;
 
@@ -13966,7 +13996,7 @@ opt_low_priority:
 /* Delete rows from a table */
 
 delete:
-          DELETE_SYM
+          DELETE_SYM opt_optimizer_hint
           {
             LEX *lex= Lex;
             YYPS->m_lock_type= TL_WRITE_DEFAULT;
@@ -13976,11 +14006,13 @@ delete:
             mysql_init_delete(lex);
             lex->ignore= 0;
             lex->first_select_lex()->order_list.empty();
+            lex->first_select_lex()->set_optimizer_hints($2);
           }
           delete_part2
           {
             if (Lex->check_cte_dependencies_and_resolve_references())
               MYSQL_YYABORT;
+            Lex->resolve_optimizer_hints_in_last_select();
           }
           ;
 
@@ -14662,7 +14694,7 @@ show_param:
           }
         | describe_command opt_format_json FOR_SYM expr
           /*
-            The alternaltive syntax for this command is MySQL-compatible
+            The alternative syntax for this command is MySQL-compatible
             EXPLAIN FOR CONNECTION
           */
           {
@@ -16093,30 +16125,7 @@ user_maybe_role:
                                                   system_charset_info, 0)))
               MYSQL_YYABORT;
           }
-        | ident_or_text '@' ident_or_text
-          {
-            if (unlikely(!($$= thd->calloc<LEX_USER>(1))))
-              MYSQL_YYABORT;
-            $$->user = $1; $$->host=$3;
-
-            if (unlikely(check_string_char_length(&$$->user, ER_USERNAME,
-                                                  username_char_length,
-                                                 system_charset_info, 0)) ||
-                unlikely(check_host_name(&$$->host)))
-              MYSQL_YYABORT;
-            if ($$->host.str[0])
-            {
-              $$->host= thd->make_ident_casedn($$->host);
-            }
-            else
-            {
-              /*
-                fix historical undocumented convention that empty host is the
-                same as '%'
-              */
-              $$->host= host_not_specified;
-            }
-          }
+        | user_name { $$= $1; }
         | CURRENT_USER optional_braces
           {
             if (unlikely(!($$= thd->calloc<LEX_USER>(1))))
@@ -16125,6 +16134,24 @@ user_maybe_role:
             $$->auth= new (thd->mem_root) USER_AUTH();
           }
         ;
+
+user_name:
+          ident_or_text '@' ident_or_text
+          {
+            if (!($$= thd->calloc<LEX_USER>(1)))
+              MYSQL_YYABORT;
+            $$->user = $1;
+            $$->host=$3;
+
+            if (check_string_char_length(&$$->user, ER_USERNAME,
+                  username_char_length, system_charset_info, 0) ||
+                check_host_name(&$$->host))
+              MYSQL_YYABORT;
+            if ($$->host.str[0])
+              $$->host= thd->make_ident_casedn($$->host);
+            else
+              $$->host= host_not_specified;
+          }
 
 user_or_role: user_maybe_role | current_role;
 
@@ -16260,7 +16287,6 @@ keyword_sp_var_not_label:
         | PREPARE_SYM
         | REMOVE_SYM
         | RESET_SYM
-        | RESTORE_SYM
         | SECURITY_SYM
         | SERVER_SYM
         | SOCKET_SYM
@@ -16306,7 +16332,7 @@ keyword_sp_var_not_label:
   In case if heavy grammar conflicts are found in the future,
   we'll possibly need to make them reserved for sql_mode=ORACLE.
 
-  TODO: Allow these variables as SP lables when sql_mode=ORACLE.
+  TODO: Allow these variables as SP labels when sql_mode=ORACLE.
   TODO: Allow assigning of "SP characteristics" marked variables
         inside compound blocks.
   TODO: Allow "follows" and "precedes" as variables in compound blocks:
@@ -16348,6 +16374,7 @@ keyword_verb_clause:
 
 keyword_set_special_case:
           NAMES_SYM
+        | AUTHORIZATION_SYM
         | ROLE_SYM
         | PASSWORD_SYM
         ;
@@ -16411,7 +16438,6 @@ keyword_func_sp_var_and_label:
         | ATOMIC_SYM
         | AUTHORS_SYM
         | AUTO_INC
-        | AUTOEXTEND_SIZE_SYM
         | AUTO_SYM
         | AVG_ROW_LENGTH
         | BLOCK_SYM
@@ -16452,7 +16478,6 @@ keyword_func_sp_var_and_label:
         | CYCLE_SYM
         | DATA_SYM
         | DATABASE
-        | DATAFILE_SYM
         | DEFINER_SYM
         | DELAY_KEY_WRITE_SYM
         | DES_KEY_FILE
@@ -16506,7 +16531,6 @@ keyword_func_sp_var_and_label:
         | INVOKER_SYM
         | IMPORT
         | INDEXES
-        | INITIAL_SIZE_SYM
         | IO_SYM
         | IPC_SYM
         | ISOLATION
@@ -16523,7 +16547,6 @@ keyword_func_sp_var_and_label:
         | LIST_SYM
         | LOCKED_SYM
         | LOCKS_SYM
-        | LOGFILE_SYM
         | LOGS_SYM
         | MAX_ROWS
         | MASTER_SYM
@@ -16550,7 +16573,6 @@ keyword_func_sp_var_and_label:
         | MASTER_SSL_KEY_SYM
         | MAX_CONNECTIONS_PER_HOUR
         | MAX_QUERIES_PER_HOUR
-        | MAX_SIZE_SYM
         | MAX_STATEMENT_TIME_SYM
         | MAX_UPDATES_PER_HOUR
         | MAX_USER_CONNECTIONS_SYM
@@ -16578,7 +16600,6 @@ keyword_func_sp_var_and_label:
         | NOCYCLE_SYM
         | NOMINVALUE_SYM
         | NOMAXVALUE_SYM
-        | NO_WAIT_SYM
         | NOCOPY_SYM
         | NOWAIT_SYM
         | NODEGROUP_SYM
@@ -16617,8 +16638,6 @@ keyword_func_sp_var_and_label:
         | READ_ONLY_SYM
         | REBUILD_SYM
         | RECOVER_SYM
-        | REDO_BUFFER_SIZE_SYM
-        | REDOFILE_SYM
         | REDUNDANT_SYM
         | RELAY
         | RELAY_LOG_FILE_SYM
@@ -16690,11 +16709,8 @@ keyword_func_sp_var_and_label:
 %ifdef MARIADB
         | TYPE_SYM           %prec PREC_BELOW_CONTRACTION_TOKEN2
 %endif
-        | UDF_RETURNS_SYM
         | UNCOMMITTED_SYM
         | UNDEFINED_SYM
-        | UNDO_BUFFER_SIZE_SYM
-        | UNDOFILE_SYM
         | UNKNOWN_SYM
         | UNTIL_SYM
         | USE_FRM
@@ -16759,8 +16775,7 @@ keyword_sp_var_and_label:
 
 
 reserved_keyword_udt_not_param_type:
-          ACCESSIBLE_SYM
-        | ADD
+          ADD
         | ALL
         | ALTER
         | ANALYZE_SYM
@@ -16943,7 +16958,6 @@ reserved_keyword_udt_not_param_type:
         | SELECT_SYM
         | SENSITIVE_SYM
         | SEPARATOR_SYM
-        | SERVER_OPTIONS
         | SHOW
         | SIGNAL_SYM
         | SPATIAL_SYM
@@ -16964,7 +16978,6 @@ reserved_keyword_udt_not_param_type:
         | STRAIGHT_JOIN
         | SUBSTRING
         | SUM_SYM
-        | TABLE_REF_PRIORITY
         | TABLE_SYM
         | TERMINATED
         | THEN_SYM
@@ -17032,6 +17045,20 @@ set_param:
           transaction_characteristics
           {
             if (unlikely(sp_create_assignment_instr(thd, yychar == YYEMPTY)))
+              MYSQL_YYABORT;
+          }
+        | SESSION_SYM AUTHORIZATION_SYM user_name
+          {
+            if (Lex->sphead)
+            {
+              my_error(ER_SP_BADSTATEMENT, MYF(0), "SET SESSION AUTHORIZATION");
+              MYSQL_YYABORT;
+            }
+            if (sp_create_assignment_lex(thd, $1.pos()))
+              MYSQL_YYABORT;
+            auto var= new (thd->mem_root) set_var_authorization($3);
+            if (var == NULL || Lex->var_list.push_back(var, thd->mem_root) ||
+                sp_create_assignment_instr(thd, yychar == YYEMPTY))
               MYSQL_YYABORT;
           }
         | option_type
@@ -19717,7 +19744,7 @@ package_implementation_declare_section:
           {
             /*
               Add a jump "end of declarations -> start of exceptions"
-              (over the executable sectition).
+              (over the executable section).
             */
             if (Lex->sp_block_with_exceptions_finalize_declarations(thd))
               MYSQL_YYABORT;

@@ -38,11 +38,6 @@ The following specify which files/extra groups are read (specified before remain
  (Automatically configured unless set explicitly)
  -b, --basedir=name  Path to installation directory. All paths are usually
  resolved relative to this
- --big-tables        Old variable, which if set to 1, allows large result sets
- by saving all temporary sets to disk, avoiding 'table
- full' errors. No longer needed, as the server now handles
- this automatically. Deprecated, will be removed in a
- future release.
  --bind-address=name IP address to bind to. Several addresses may be
  specified, separated by a comma (,)
  --binlog-alter-two-phase 
@@ -228,6 +223,13 @@ The following specify which files/extra groups are read (specified before remain
  --console           Write error output on screen; don't remove the console
  window on Windows
  --core-file         Write core on crashes
+ --create-tmp-table-binlog-formats=name 
+ The binary logging formats under which the master will
+ log CREATE TEMPORARY statments to the binary log. If
+ CREATE TEMPORARY is not logged, all usage of the
+ temporary table will be logged in ROW format. Allowed
+ values are STATEMENT or MIXED,STATEMENT, or ALL to set
+ all combinations
  -h, --datadir=name  Path to the database root directory
  --deadlock-search-depth-long=# 
  Long search depth for the two-step deadlock detection
@@ -879,7 +881,7 @@ The following specify which files/extra groups are read (specified before remain
  index_merge_sort_union, index_merge_intersection, 
  index_merge_sort_intersection, index_condition_pushdown, 
  derived_merge, derived_with_keys, firstmatch, loosescan, 
- materialization, in_to_exists, semijoin, 
+ duplicateweedout, materialization, in_to_exists, semijoin,
  partial_match_rowid_merge, partial_match_table_scan, 
  subquery_cache, mrr, mrr_cost_based, mrr_sort_keys, 
  outer_join_with_cache, semijoin_with_cache, 
@@ -1147,9 +1149,13 @@ The following specify which files/extra groups are read (specified before remain
  buffer of this size for each table it scans. If you do
  many sequential scans, you may want to increase this
  value
- --read-only         Make all non-temporary tables read-only, with the
- exception for replication (slave) threads and users with
- the 'READ ONLY ADMIN' privilege
+ --read-only[=name]  Do not allow changes to non-temporary tables. Options
+ are:OFF changes allowed. ON Disallow changes for users
+ without the READ ONLY ADMIN privilege. NO_LOCK
+ Additionally disallows LOCK TABLES and SELECT IN SHARE
+ MODE. NO_LOCK_NO_ADMIN Disallows also for users with
+ READ_ONLY ADMIN privilege. Replication (slave) threads
+ are not affected by this option
  --read-rnd-buffer-size=# 
  When reading rows in sorted order after a sort, the rows
  are read through this buffer to avoid a disk seeks
@@ -1661,7 +1667,6 @@ auto-increment-offset 1
 autocommit TRUE
 automatic-sp-privileges TRUE
 back-log 80
-big-tables FALSE
 bind-address (No default value)
 binlog-alter-two-phase FALSE
 binlog-annotate-row-events TRUE
@@ -1699,6 +1704,7 @@ completion-type NO_CHAIN
 concurrent-insert AUTO
 console TRUE
 core-file TRUE
+create-tmp-table-binlog-formats STATEMENT
 deadlock-search-depth-long 15
 deadlock-search-depth-short 4
 deadlock-timeout-long 50000000
@@ -1883,7 +1889,7 @@ optimizer-rowid-copy-cost 0.002653
 optimizer-scan-setup-cost 10
 optimizer-search-depth 62
 optimizer-selectivity-sampling-limit 100
-optimizer-switch index_merge=on,index_merge_union=on,index_merge_sort_union=on,index_merge_intersection=on,index_merge_sort_intersection=off,index_condition_pushdown=on,derived_merge=on,derived_with_keys=on,firstmatch=on,loosescan=on,materialization=on,in_to_exists=on,semijoin=on,partial_match_rowid_merge=on,partial_match_table_scan=on,subquery_cache=on,mrr=off,mrr_cost_based=off,mrr_sort_keys=off,outer_join_with_cache=on,semijoin_with_cache=on,join_cache_incremental=on,join_cache_hashed=on,join_cache_bka=on,optimize_join_buffer_size=on,table_elimination=on,extended_keys=on,exists_to_in=on,orderby_uses_equalities=on,condition_pushdown_for_derived=on,split_materialized=on,condition_pushdown_for_subquery=on,rowid_filter=on,condition_pushdown_from_having=on,not_null_range_scan=off,hash_join_cardinality=on,cset_narrowing=on,sargable_casefold=on
+optimizer-switch index_merge=on,index_merge_union=on,index_merge_sort_union=on,index_merge_intersection=on,index_merge_sort_intersection=off,index_condition_pushdown=on,derived_merge=on,derived_with_keys=on,firstmatch=on,loosescan=on,duplicateweedout=on,materialization=on,in_to_exists=on,semijoin=on,partial_match_rowid_merge=on,partial_match_table_scan=on,subquery_cache=on,mrr=off,mrr_cost_based=off,mrr_sort_keys=off,outer_join_with_cache=on,semijoin_with_cache=on,join_cache_incremental=on,join_cache_hashed=on,join_cache_bka=on,optimize_join_buffer_size=on,table_elimination=on,extended_keys=on,exists_to_in=on,orderby_uses_equalities=on,condition_pushdown_for_derived=on,split_materialized=on,condition_pushdown_for_subquery=on,rowid_filter=on,condition_pushdown_from_having=on,not_null_range_scan=off,hash_join_cardinality=on,cset_narrowing=on,sargable_casefold=on
 optimizer-trace 
 optimizer-trace-max-mem-size 1048576
 optimizer-use-condition-selectivity 4
@@ -1964,7 +1970,7 @@ query-prealloc-size 32768
 range-alloc-block-size 4096
 read-binlog-speed-limit 0
 read-buffer-size 131072
-read-only FALSE
+read-only OFF
 read-rnd-buffer-size 262144
 redirect-url 
 relay-log (No default value)

@@ -129,7 +129,7 @@ extern ulong rpl_transactions_multi_engine;
 extern ulong transactions_gtid_foreign_engine;
 extern ulong slave_run_triggers_for_rbr;
 extern ulonglong slave_type_conversions_options;
-extern my_bool read_only, opt_readonly;
+extern ulong read_only, opt_readonly;
 extern MYSQL_PLUGIN_IMPORT my_bool lower_case_file_system;
 extern my_bool opt_enable_named_pipe, opt_sync_frm, opt_allow_suspicious_udfs;
 extern my_bool opt_secure_auth;
@@ -685,7 +685,6 @@ extern LEX_CUSTRING ssl_acceptor_fingerprint();
   The following variables were under INNODB_COMPABILITY_HOOKS
  */
 extern my_bool opt_large_pages;
-extern uint opt_large_page_size;
 extern MYSQL_PLUGIN_IMPORT char lc_messages_dir[FN_REFLEN];
 extern char *lc_messages_dir_ptr, *log_error_file_ptr;
 extern MYSQL_PLUGIN_IMPORT char reg_ext[FN_EXTLEN];
@@ -861,7 +860,7 @@ enum enum_query_type
   QT_SHOW_SELECT_NUMBER= (1<<10),
 
   /// Do not print database name or table name in the identifiers (even if
-  /// this means the printout will be ambigous). It is assumed that the caller
+  /// this means the printout will be ambiguous). It is assumed that the caller
   ///  passing this flag knows what they are doing.
   QT_ITEM_IDENT_DISABLE_DB_TABLE_NAMES= (1 <<11),
 

@@ -419,7 +419,7 @@ handlerton *heap_hton;
 handlerton *myisam_hton;
 handlerton *partition_hton;
 
-my_bool read_only= 0, opt_readonly= 0;
+ulong read_only= 0, opt_readonly= 0;
 my_bool use_temp_pool, relay_log_purge;
 my_bool relay_log_recovery;
 my_bool opt_sync_frm, opt_allow_suspicious_udfs;
@@ -432,7 +432,6 @@ my_bool opt_large_pages= 0;
 my_bool opt_super_large_pages= 0;
 #endif
 my_bool opt_myisam_use_mmap= 0;
-uint   opt_large_page_size= 0;
 #if defined(ENABLED_DEBUG_SYNC)
 MYSQL_PLUGIN_IMPORT uint    opt_debug_sync_timeout= 0;
 #endif /* defined(ENABLED_DEBUG_SYNC) */
@@ -456,6 +455,7 @@ uint opt_binlog_gtid_index_span_min= 65536;
 my_bool opt_master_verify_checksum= 0;
 my_bool opt_slave_sql_verify_checksum= 1;
 const char *binlog_format_names[]= {"MIXED", "STATEMENT", "ROW", NullS};
+const char *binlog_formats_create_tmp_names[]= {"MIXED", "STATEMENT", NullS};
 volatile sig_atomic_t calling_initgroups= 0; /**< Used in SIGSEGV handler. */
 uint mysqld_port, select_errors, ha_open_options;
 uint mysqld_extra_port;
@@ -4473,6 +4473,10 @@ static int init_common_variables()
   if (tls_version & (VIO_TLSv1_0 + VIO_TLSv1_1))
       sql_print_warning("TLSv1.0 and TLSv1.1 are insecure and should not be used for tls_version");
 
+  /* create_temporary_table... must always have the flag BINLOG_FORMAT_STMT */
+  global_system_variables.create_temporary_table_binlog_formats|=
+    (1ULL << BINLOG_FORMAT_STMT);
+
 #ifdef WITH_WSREP
   /*
     We need to initialize auxiliary variables, that will be
@@ -5438,6 +5442,10 @@ static int init_server_components()
       /* removed in 11.5 */
       MARIADB_REMOVED_OPTION("wsrep-load-data-splitting"),
 
+      /* removed in 12.0 */
+      MARIADB_REMOVED_OPTION("big-tables"),
+      MARIADB_REMOVED_OPTION("large-page-size"),
+      MARIADB_REMOVED_OPTION("storage-engine"),
       {0, 0, 0, 0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0}
     };
     /*
@@ -6159,8 +6167,8 @@ int mysqld_main(int argc, char **argv)
   (void)MYSQL_SET_STAGE(0 ,__FILE__, __LINE__);
 
   /* Memory used when everything is setup */
-  start_memory_used= global_status_var.global_memory_used;
-
+  start_memory_used= (global_status_var.global_memory_used +
+                      my_malloc_init_memory_allocated);
   run_main_loop();
 
   /* Shutdown requested */
@@ -6810,12 +6818,6 @@ struct my_option my_long_options[]=
    "more than one storage engine, when binary log is disabled)",
    &opt_tc_log_file, &opt_tc_log_file, 0, GET_STR,
    REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
-  {"master-info-file", 0,
-   "The location and name of the file that remembers the master and where "
-   "the I/O replication thread is in the master's binlogs. Defaults to "
-   "master.info",
-   &master_info_file, &master_info_file, 0, GET_STR,
-   REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
   {"master-retry-count", 0,
    "The number of tries the slave will make to connect to the master before giving up",
    &master_retry_count, &master_retry_count, 0, GET_ULONG,
@@ -6866,14 +6868,6 @@ struct my_option my_long_options[]=
    "Updates to a database with a different name than the original. Example: "
    "replicate-rewrite-db=master_db_name->slave_db_name",
    0, 0, 0, GET_STR | GET_ASK_ADDR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
-#ifdef HAVE_REPLICATION
-  {"replicate-same-server-id", 0,
-   "In replication, if set to 1, do not skip events having our server id. "
-   "Default value is 0 (to break infinite loops in circular replication). "
-   "Can't be set to 1 if --log-slave-updates is used",
-   &replicate_same_server_id, &replicate_same_server_id,
-   0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
-#endif
   {"replicate-wild-do-table", OPT_REPLICATE_WILD_DO_TABLE,
    "Tells the slave thread to restrict replication to the tables that match "
    "the specified wildcard pattern. To specify more than one table, use the "
@@ -6896,10 +6890,6 @@ struct my_option my_long_options[]=
    "Don't allow new user creation by the user who has no write privileges to the mysql.user table",
    &opt_safe_user_create, &opt_safe_user_create, 0, GET_BOOL,
    NO_ARG, 0, 0, 0, 0, 0, 0},
-  {"show-slave-auth-info", 0,
-   "Show user and password in SHOW SLAVE HOSTS on this master",
-   &opt_show_slave_auth_info, &opt_show_slave_auth_info, 0,
-   GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
   {"silent-startup", OPT_SILENT, "Don't print [Note] to the error log during startup",
    &opt_silent_startup, &opt_silent_startup, 0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
   {"skip-host-cache", OPT_SKIP_HOST_CACHE, "Don't cache host names", 0, 0, 0,
@@ -7442,7 +7432,7 @@ static int show_memory_used(THD *thd, SHOW_VAR *var, void *buff,
   if (scope == OPT_GLOBAL)
   {
     calc_sum_of_all_status_if_needed(status_var);
-    *(longlong*) buff= (status_var->global_memory_used +
+    *(longlong*) buff= (status_var->global_memory_used + my_malloc_init_memory_allocated +
                         status_var->local_memory_used);
   }
   else
@@ -9621,7 +9611,7 @@ PSI_stage_info stage_waiting_for_flush= { 0, "Waiting for non trans tables to be
 PSI_stage_info stage_waiting_for_ddl= { 0, "Waiting for DDLs", 0};
 
 #ifdef WITH_WSREP
-// Aditional Galera thread states
+// Additional Galera thread states
 PSI_stage_info stage_waiting_isolation= { 0, "Waiting to execute in isolation", 0};
 PSI_stage_info stage_waiting_certification= {0, "Waiting for certification", 0};
 PSI_stage_info stage_waiting_ddl= {0, "Waiting for TOI DDL", 0};

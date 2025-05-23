@@ -2475,6 +2475,9 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
                                        extra2.field_data_type_info))
     goto err;
 
+  /*
+    Column definitions extraction begins here.
+  */
   for (i=0 ; i < share->fields; i++, strpos+=field_pack_length, field_ptr++)
   {
     uint interval_nr= 0, recpos;
@@ -2844,6 +2847,10 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
         share->default_fields++;
     }
   }
+  /*
+    Column definitions extraction ends here.
+  */
+  
   *field_ptr=0;					// End marker
   /* Sanity checks: */
   DBUG_ASSERT(share->fields>=share->stored_fields);
@@ -6957,15 +6964,15 @@ bool TABLE_LIST::prepare_view_security_context(THD *thd, bool upgrade_check)
           (thd->lex->sql_command == SQLCOM_SHOW_FIELDS))
       {
         push_warning_printf(thd, Sql_condition::WARN_LEVEL_NOTE, 
-                            ER_NO_SUCH_USER, 
-                            ER_THD(thd, ER_NO_SUCH_USER),
+                            ER_MALFORMED_DEFINER,
+                            ER_THD(thd, ER_MALFORMED_DEFINER),
                             definer.user.str, definer.host.str);
       }
       else
       {
         if (thd->security_ctx->master_access & PRIV_REVEAL_MISSING_DEFINER)
         {
-          my_error(ER_NO_SUCH_USER, MYF(upgrade_check ? ME_WARNING: 0),
+          my_error(ER_MALFORMED_DEFINER, MYF(upgrade_check ? ME_WARNING: 0),
                    definer.user.str, definer.host.str);
         }
         else

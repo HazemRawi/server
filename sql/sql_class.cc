@@ -693,7 +693,7 @@ THD::THD(my_thread_id id, bool is_wsrep_applier)
              /* statement id */ 0),
    rli_fake(0), rgi_fake(0), rgi_slave(NULL),
    protocol_text(this), protocol_binary(this), initial_status_var(0),
-   m_current_stage_key(0), m_psi(0),
+   m_current_stage_key(0), m_psi(0), start_time(0), start_time_sec_part(0),
    in_sub_stmt(0), log_all_errors(0),
    binlog_unsafe_warning_flags(0),
    current_stmt_binlog_format(BINLOG_FORMAT_MIXED),
@@ -1357,7 +1357,7 @@ void THD::init()
 
   mysql_mutex_unlock(&LOCK_global_system_variables);
 
-  user_time.val= start_time= start_time_sec_part= 0;
+  user_time.val= 0;
 
   server_status= 0;
   if (variables.option_bits & OPTION_AUTOCOMMIT)
@@ -1386,6 +1386,7 @@ void THD::init()
   status_var.max_local_memory_used= status_var.local_memory_used;
   bzero((char *) &org_status_var, sizeof(org_status_var));
   status_in_global= 0;
+  bytes_sent_old= 0;
   start_bytes_received= 0;
   m_last_commit_gtid.seq_no= 0;
   last_stmt= NULL;
@@ -1546,6 +1547,14 @@ void THD::init_for_queries()
 
 void THD::change_user(void)
 {
+#ifdef WITH_WSREP
+  bool pause_wsrep= wsrep_cs().state() != wsrep::client_state::s_none;
+  if (pause_wsrep)
+  {
+    wsrep_after_command_ignore_result(this);
+    wsrep_close(this);
+  }
+#endif /* WITH_WSREP */
   if (!status_in_global)                        // Reset in init()
     add_status_to_global();
 
@@ -1563,6 +1572,8 @@ void THD::change_user(void)
     get_stmt_da()->clear_warning_info(0);
 
   init();
+  /* cannot clear map if it'll free the currently executing statement */
+  DBUG_ASSERT(stmt_arena->is_conventional());
   stmt_map.reset();
   my_hash_init(key_memory_user_var_entry, &user_vars,
                Lex_ident_user_var::charset_info(),
@@ -1572,9 +1583,18 @@ void THD::change_user(void)
                Lex_ident_fs::charset_info(), SEQUENCES_HASH_SIZE, 0, 0,
                get_sequence_last_key, free_sequence_last,
                HASH_THREAD_SPECIFIC);
+  /* cannot clear caches if it'll free the currently running routine */
+  DBUG_ASSERT(!spcont);
   sp_caches_clear();
   statement_rcontext_reinit();
   opt_trace.delete_traces();
+#ifdef WITH_WSREP
+  if (pause_wsrep)
+  {
+    wsrep_open(this);
+    wsrep_before_command(this);
+  }
+#endif /* WITH_WSREP */
 }
 
 /**
@@ -3119,7 +3139,7 @@ struct Item_change_record: public ilink
 
 
 /*
-  Register an item tree tree transformation, performed by the query
+  Register an item tree transformation, performed by the query
   optimizer. We need a pointer to runtime_memroot because it may be !=
   thd->mem_root (due to possible set_n_backup_active_arena called for thd).
 */
@@ -4945,7 +4965,7 @@ change_security_context(THD *thd,
   {
     if (acl_getroot(this, *definer_user, *definer_host, *definer_host, *db))
     {
-      my_error(ER_NO_SUCH_USER, MYF(0), definer_user->str,
+      my_error(ER_MALFORMED_DEFINER, MYF(0), definer_user->str,
                definer_host->str);
       DBUG_RETURN(TRUE);
     }
@@ -6282,7 +6302,7 @@ void THD::restore_sub_statement_state(Sub_statement_state *backup)
 }
 
 /*
-  Store slow query state at start of a stored procedure statment
+  Store slow query state at start of a stored procedure statement
 */
 
 void THD::store_slow_query_state(Sub_statement_state *backup)
@@ -6607,7 +6627,7 @@ void THD::mark_transaction_to_rollback(bool all)
 
 
 /**
-  Commit the whole transaction (both statment and all)
+  Commit the whole transaction (both statement and all)
 
   This is used mainly to commit an independent transaction,
   like reading system tables.
@@ -6978,7 +6998,7 @@ int THD::decide_logging_format(TABLE_LIST *tables)
       table= tbl->table;
       share= table->s;
       flags= table->file->ha_table_flags();
-      if (!share->table_creation_was_logged)
+      if (!share->using_binlog())
       {
         /*
           This is a temporary table which was not logged in the binary log.
@@ -8057,6 +8077,18 @@ void THD::issue_unsafe_warnings()
 /**
   Log the current query.
 
+  @param qtype      Query type
+  @param query_arg  Query to be logged
+  @param query_len  Query length
+  @param is_trans   If table is transactional. This is need to know in which
+                    cache the table changes has been logged
+  @param direct     Set if the query should be done directly to binary
+                    log instead of to the binary log cache.
+  suppress_use      Don't write 'use database' to the binary log. Used with
+                    statements like DROP DATABASE.
+  errcode           The error code if the statement failed.
+
+
   The query will be logged in either row format or statement format
   depending on the value of @c current_stmt_binlog_format_row field and
   the value of the @c qtype parameter.
@@ -8202,6 +8234,9 @@ int THD::binlog_query(THD::enum_binlog_query_type qtype, char const *query_arg,
         row logged binlog may not have been reset in the case of locked tables
       */
       reset_binlog_for_next_statement();
+
+      /* Temp tables changes are logged as a statement */
+      tmp_table_binlog_handled= 1;
 
       DBUG_RETURN(error >= 0 ? error : 1);
     }

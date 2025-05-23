@@ -4115,6 +4115,10 @@ void do_rmdir(struct st_command *command)
 
   DESCRIPTION
   list all entries in directory (matching ds_wild if given)
+
+  RETURN
+  -1 on error
+   # number of found files
 */
 
 static int get_list_files(DYNAMIC_STRING *ds, const DYNAMIC_STRING *ds_dirname,
@@ -4123,11 +4127,12 @@ static int get_list_files(DYNAMIC_STRING *ds, const DYNAMIC_STRING *ds_dirname,
   size_t i;
   MY_DIR *dir_info;
   FILEINFO *file;
+  int found= 0;
   DBUG_ENTER("get_list_files");
 
   DBUG_PRINT("info", ("listing directory: %s", ds_dirname->str));
   if (!(dir_info= my_dir(ds_dirname->str, MYF(MY_WANT_SORT))))
-    DBUG_RETURN(1);
+    DBUG_RETURN(-1);
   set_wild_chars(1);
   for (i= 0; i < dir_info->number_of_files; i++)
   {
@@ -4137,10 +4142,11 @@ static int get_list_files(DYNAMIC_STRING *ds, const DYNAMIC_STRING *ds_dirname,
       continue;
     replace_dynstr_append(ds, file->name);
     dynstr_append_mem(ds, STRING_WITH_LEN("\n"));
+    found++;
   }
   set_wild_chars(0);
   my_dirend(dir_info);
-  DBUG_RETURN(0);
+  DBUG_RETURN(found);
 }
 
 
@@ -4172,7 +4178,8 @@ static void do_list_files(struct st_command *command)
                      sizeof(list_files_args)/sizeof(struct command_arg), ' ');
 
   error= get_list_files(&ds_res, &ds_dirname, &ds_wild);
-  handle_command_error(command, error, my_errno);
+  var_set_int("$sys_files",error);
+  handle_command_error(command, error < 0, my_errno);
   dynstr_free(&ds_dirname);
   dynstr_free(&ds_wild);
   DBUG_VOID_RETURN;
@@ -4217,7 +4224,7 @@ static void do_list_files_write_file_command(struct st_command *command,
     DBUG_VOID_RETURN;
 
   init_dynamic_string(&ds_content, "", 1024, 1024);
-  error= get_list_files(&ds_content, &ds_dirname, &ds_wild);
+  error= get_list_files(&ds_content, &ds_dirname, &ds_wild) < 0;
   handle_command_error(command, error, my_errno);
   str_to_file2(ds_filename.str, ds_content.str, ds_content.length, append);
   dynstr_free(&ds_content);
@@ -4662,7 +4669,11 @@ void do_change_user(struct st_command *command)
     handle_error(command, mysql_errno(mysql), mysql_error(mysql),
 		 mysql_sqlstate(mysql), &ds_res);
   else
+  {
+    if (display_session_track_info)
+      append_session_track_info(&ds_res, mysql);
     handle_no_error(command);
+  }
 
   dynstr_free(&ds_user);
   dynstr_free(&ds_passwd);
@@ -6807,7 +6818,7 @@ int read_line()
   my_bool have_slash= FALSE;
   
   enum {R_NORMAL, R_Q, R_SLASH_IN_Q,
-        R_COMMENT, R_LINE_START, R_CSTYLE_COMMENT} state= R_LINE_START;
+        R_COMMENT, R_LINE_START, R_CSTYLE_COMMENT, R_HINT} state= R_LINE_START;
   DBUG_ENTER("read_line");
 
   *p= 0;
@@ -6864,8 +6875,10 @@ int read_line()
         p--;
     }
 
+    bool drop_last_char= false;
     switch(state) {
     case R_NORMAL:
+    case R_HINT:
       if (end_of_query(c))
       {
 	*p= 0;
@@ -6899,16 +6912,29 @@ int read_line()
         state= R_CSTYLE_COMMENT;
         break;
       }
+      else if (c == '/' && last_char == '*') // Closing sequence `*/`
+      {
+        state= R_NORMAL;
+        // The hint is finished, and we don't want to interpret the current slash
+        // as an opener for a next hint or a C-style comment like it can happen
+        // for a statement like `SELECT /*+ BNL(t1) */* FROM t1` where there is
+        //no space between `*/` and `*`. So discard the current slash
+        drop_last_char= true;
+      }
       have_slash= is_escape_char(c, last_quote);
       break;
 
     case R_CSTYLE_COMMENT:
-      if (c == '!')
-        // Got the hint introducer '/*!'. Switch to normal processing of
-        // next following characters
-        state= R_NORMAL;
+      if (c == '!' || c == '+')
+      {
+        // Got hint introducer '/*!' or '/*+'
+        state= R_HINT;
+      }
       else if (c == '/' && last_char == '*')
+      {
         state= R_NORMAL;
+        drop_last_char= true; // See comment for `drop_last_char` above
+      }
       break;
 
     case R_COMMENT:
@@ -6988,7 +7014,15 @@ int read_line()
 
     }
 
-    last_char= c;
+    if (!drop_last_char)
+    {
+      last_char= c;
+    }
+    else
+    {
+      last_char= 0;
+      drop_last_char= false;
+    }
 
     if (!skip_char)
     {

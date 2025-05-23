@@ -1104,6 +1104,15 @@ public:
 */
 class Item_func_case_expression: public Item_func_hybrid_field_type
 {
+  bool check_arguments() const override
+  {
+    /*
+      Arguments to CASE-style expressions are subject to aggregate_for_result()
+      and/or aggregate_for_comparision(). These methods validate the arguments.
+      No needs to check arguments here.
+    */
+    return false;
+  }
 public:
   Item_func_case_expression(THD *thd)
    :Item_func_hybrid_field_type(thd)
@@ -2279,7 +2288,7 @@ class Item_func_rownum final :public Item_longlong_func
 {
   /*
     This points to a variable that contains the number of rows
-    accpted so far in the result set
+    accepted so far in the result set
   */
   ha_rows *accepted_rows;
   SELECT_LEX *select;

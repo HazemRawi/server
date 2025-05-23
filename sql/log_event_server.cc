@@ -2082,7 +2082,7 @@ int Query_log_event::do_apply_event(rpl_group_info *rgi,
           {
             /*
               To be compatible with previous releases, the slave thread uses the global
-              log_slow_disabled_statements value, wich can be changed dynamically, so we
+              log_slow_disabled_statements value, which can be changed dynamically, so we
               have to set the sql_log_slow respectively.
             */
             thd->variables.sql_log_slow= !MY_TEST(global_system_variables.log_slow_disabled_statements & LOG_SLOW_DISABLE_SLAVE);
@@ -4857,7 +4857,7 @@ int Rows_log_event::do_apply_event(rpl_group_info *rgi)
     set/reset the slave thread's timer; a Rows_log_event update needs to set
     the timer itself
   */
-  thd->set_query_timer();
+  thd->set_query_timer_if_needed();
 
   /*
     If there are no tables open, this must be the first row event seen
@@ -5514,7 +5514,7 @@ Rows_log_event::do_update_pos(rpl_group_info *rgi)
 
 bool Rows_log_event::write_data_header(Log_event_writer *writer)
 {
-  uchar buf[ROWS_HEADER_LEN_V2];        // No need to init the buffer
+  uchar buf[ROWS_HEADER_LEN_V1];        // No need to init the buffer
   DBUG_ASSERT(m_table_id != UINT32_MAX);
   DBUG_EXECUTE_IF("old_row_based_repl_4_byte_map_id_master",
                   {
