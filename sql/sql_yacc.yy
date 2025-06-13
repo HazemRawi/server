@@ -324,7 +324,7 @@ void _CONCAT_UNDERSCORED(turn_parser_debug_on,yyparse)()
   enum ha_key_alg key_alg;
   enum ha_rkey_function ha_rkey_mode;
   enum index_hint_type index_hint;
-  enum interval_type interval, interval_time_st, range_time_stamp;
+  enum interval_type interval, interval_time_st;
   enum row_type row_type;
   enum sp_variable::enum_mode spvar_mode;
   enum thr_lock_type lock_type;
@@ -360,9 +360,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 */
 
 %ifdef MARIADB
-%expect 63
+%expect 66
 %else
-%expect 64
+%expect 67
 %endif
 
 /*
@@ -1323,7 +1323,15 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %left   TEXT_STRING '(' ')' VALUE_SYM VERSIONING_SYM BODY_MARIADB_SYM OF_SYM
 %left EMPTY_FROM_CLAUSE
 %right INTO
-
+%precedence YEAR_SYM
+%precedence DAY_SYM
+%precedence HOUR_SYM
+%precedence MINUTE_SYM
+%precedence WEEK_SYM
+%precedence MONTH_SYM
+%precedence QUARTER_SYM
+%precedence SECOND_SYM
+%precedence MICROSECOND_SYM
 %type <lex_comment>
         HINT_COMMENT opt_hint_comment
 
@@ -1696,7 +1704,6 @@ rule:
 %type <interval> interval
 
 %type <interval_time_st> interval_time_stamp
-%type <range_time_stamp> range_time_stamp
 
 %type <db_type> storage_engines known_storage_engines
 
@@ -6636,16 +6643,26 @@ interval_qualifier:
       | range_datetime_field
 
 single_datetime_field:
-        range_time_stamp opt_field_length
+        interval_time_stamp opt_field_length
+
 
 range_datetime_field:
         start_field end_field
 
 start_field:
-        range_time_stamp opt_field_length TO_SYM
+        interval_time_stamp opt_field_length TO_SYM
+        {
+          if ($1 != INTERVAL_YEAR && $1 != INTERVAL_DAY &&
+              $1 != INTERVAL_HOUR && $1 != INTERVAL_MINUTE)
+          {
+            my_error(ER_SYNTAX_ERROR, MYF(0),
+                     "Only YEAR, DAY, HOUR, and MINUTE intervals are allowed as start field");
+            YYERROR;
+          }
+        }
 
 end_field:
-        range_time_stamp | SECOND_SYM opt_field_length | MONTH_SYM
+        interval_time_stamp opt_field_length
 
 field_type_lob:
           TINYBLOB opt_compressed
@@ -12451,18 +12468,16 @@ interval:
         ;
 
 interval_time_stamp:
-        range_time_stamp  {}
+          YEAR_SYM   { $$ = INTERVAL_YEAR; }
+        | DAY_SYM    { $$ = INTERVAL_DAY; }
+        | HOUR_SYM   { $$ = INTERVAL_HOUR; }
+        | MINUTE_SYM { $$ = INTERVAL_MINUTE; }
         | WEEK_SYM        { $$=INTERVAL_WEEK; }
         | MONTH_SYM       { $$=INTERVAL_MONTH; }
         | QUARTER_SYM     { $$=INTERVAL_QUARTER; }
         | SECOND_SYM      { $$=INTERVAL_SECOND; }
         | MICROSECOND_SYM { $$=INTERVAL_MICROSECOND; }
         ;
-range_time_stamp:
-        YEAR_SYM   { $$ = INTERVAL_YEAR; }
-        | DAY_SYM    { $$ = INTERVAL_DAY; }
-        | HOUR_SYM   { $$ = INTERVAL_HOUR; }
-        | MINUTE_SYM { $$ = INTERVAL_MINUTE; }
 
 date_time_type:
           DATE_SYM  {$$=MYSQL_TIMESTAMP_DATE;}
@@ -15730,6 +15745,13 @@ temporal_literal:
                                                             YYCSCL, true))))
               MYSQL_YYABORT;
           }
+                  | INTERVAL_SYM TEXT_STRING interval_qualifier
+                    {
+                      if (unlikely(!($$= type_handler_datetime.create_literal_item(thd,
+                                                                      $2.str, $2.length,
+                                                                      YYCSCL, true))))
+                        MYSQL_YYABORT;
+                    }
         ;
 
 with_clause:
