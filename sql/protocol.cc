@@ -1664,6 +1664,7 @@ bool Protocol_text::store_interval(Interval *iv)
 {
 #ifndef DBUG_OFF
   DBUG_ASSERT(valid_handler(field_pos, PROTOCOL_SEND_INTERVAL));
+  DBUG_ASSERT(is_valid_interval(iv));
   field_pos++;
 #endif
   char buff[MAX_INTERVAL_STRING_REP_LENGTH];

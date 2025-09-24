@@ -9838,9 +9838,9 @@ Type_handler_interval_common::create_literal_item_for_interval(
   uint8 default_start, default_end;
   get_interval_default_precision(itype, &default_start, &default_end);
 
-if (itype == INTERVAL_SECOND)
-{
-  end_prec= start_prec?start_prec:default_end;
+  if (itype == INTERVAL_SECOND)
+  {
+  end_prec= start_prec? start_prec:default_end;
   start_prec= default_start;
 }
   else

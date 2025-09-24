@@ -6155,7 +6155,7 @@ bool check_expression(Virtual_column_info *vcol, const Lex_ident_column &name,
 #define f_is_num(x)		((x) & FIELDFLAG_NUMBER)
 #define f_is_zerofill(x)	((x) & FIELDFLAG_ZEROFILL)
 #define f_is_packed(x)		((x) & FIELDFLAG_PACK)
-#define f_packtype(x)		(((x) >> FIELDFLAG_PACK_SHIFT) & 15)
+#define f_packtype(x)		(((x) >> FIELDFLAG_PACK_SHIFT) & 15) // TODO: Change the value from 15 to 31 to include MYSQL_TYPE_INTERVAL, and fix failing MTR tests.
 #define f_decimals(x)		((uint8) (((x) >> FIELDFLAG_DEC_SHIFT) & FIELDFLAG_MAX_DEC))
 #define f_is_alpha(x)		(!f_is_num(x))
 #define f_is_binary(x)          ((x) & FIELDFLAG_BINARY) // 4.0- compatibility

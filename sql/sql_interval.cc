@@ -65,14 +65,18 @@ Interval::Interval(const char *str, size_t length,
 {
   TemporalAsciiBuffer tmp(str, length, cs);
   str_to_interval(tmp.str, tmp.length, this, itype, start_prec, end_prec);
-  if (!is_valid_interval(itype, start_prec, end_prec, this))
+  if (!is_valid_interval(this))
     my_error(ER_INVALID_DEFAULT_PARAM, MYF(0));
 }
 
 Interval::Interval(const Sec6 &sec6, enum interval_type itype, uint8 start_prec, uint8 end_prec)
+
+: m_interval_type(itype),
+  start_prec(start_prec),
+  end_prec(end_prec)
 {
   Sec6_to_interval(sec6, this, itype, start_prec, end_prec);
-  if (!is_valid_interval(itype, start_prec, end_prec, this))
+  if (!is_valid_interval(this))
     my_error(ER_INVALID_DEFAULT_PARAM, MYF(0));
 }
 
@@ -139,7 +143,7 @@ Interval& Interval::ceil()
 
 bool Interval::to_bool() const
 {
-  return (bool)is_valid_interval(m_interval_type, start_prec, end_prec, this);
+  return is_valid_interval(this);
 }
 
 longlong Interval::to_longlong() const
@@ -471,7 +475,6 @@ int Sec6_to_interval(const Sec6 &sec6, Interval *to,
             return 1;
     }
    to->round(current_thd, end_prec, to->default_round_mode(current_thd));
-
     return 0;
 }
 
@@ -486,65 +489,68 @@ static uint8_t count_digits(ulong value)
   return digits;
 }
 
-bool is_valid_interval(interval_type itype,
-                          uint8_t start_prec,
-                          uint8_t end_prec,
-                          const Interval *ival) {
-    switch (itype) {
+bool is_valid_interval(const Interval *ival)
+{
+  uint8 start_prec, end_prec;
+  get_interval_default_precision(ival->m_interval_type, &start_prec, &end_prec);
+  DBUG_ASSERT(ival->start_prec > 0 && ival->start_prec <= start_prec);
+  DBUG_ASSERT(ival->end_prec > 0 && ival->end_prec <= end_prec);
+
+  switch (ival->m_interval_type) {
     case INTERVAL_YEAR:
-        return count_digits(ival->year) <= start_prec;
+        return count_digits(ival->year) <= ival->start_prec;
 
     case INTERVAL_MONTH:
-        return count_digits(ival->month) <= start_prec;
+        return count_digits(ival->month) <= ival->start_prec;
 
     case INTERVAL_DAY:
-        return count_digits(ival->day) <= start_prec;
+        return count_digits(ival->day) <= ival->start_prec;
 
     case INTERVAL_HOUR:
-        return count_digits(ival->hour) <= start_prec;
+        return count_digits(ival->hour) <= ival->start_prec;
 
     case INTERVAL_MINUTE:
-        return count_digits(ival->minute) <= start_prec;
+        return count_digits(ival->minute) <= ival->start_prec;
 
     case INTERVAL_SECOND:
         return ival->second_part <= INTERVAL_FRAC_MAX;
 
     case INTERVAL_YEAR_MONTH:
-        return count_digits(ival->year) <= start_prec &&
+        return count_digits(ival->year) <= ival->start_prec &&
                ival->month <= INTERVAL_MONTH_MAX;
 
     case INTERVAL_DAY_HOUR:
-        return count_digits(ival->day) <= start_prec &&
+        return count_digits(ival->day) <= ival->start_prec &&
                ival->hour <= INTERVAL_HOUR_MAX;
 
     case INTERVAL_HOUR_MINUTE:
-        return count_digits(ival->hour) <= start_prec &&
+        return count_digits(ival->hour) <= ival->start_prec &&
                ival->minute <= INTERVAL_MINUTE_MAX;
 
     case INTERVAL_MINUTE_SECOND:
-        return count_digits(ival->minute) <= start_prec &&
+        return count_digits(ival->minute) <= ival->start_prec &&
                ival->second <= INTERVAL_SECOND_MAX;
 
     case INTERVAL_DAY_MINUTE:
-        return count_digits(ival->day) <= start_prec &&
+        return count_digits(ival->day) <= ival->start_prec &&
                ival->hour <= INTERVAL_HOUR_MAX &&
                ival->minute <= INTERVAL_MINUTE_MAX;
 
     case INTERVAL_DAY_SECOND:
-        return count_digits(ival->day) <= start_prec &&
+        return count_digits(ival->day) <= ival->start_prec &&
                ival->hour <= INTERVAL_HOUR_MAX &&
                ival->minute <= INTERVAL_MINUTE_MAX &&
                ival->second <= INTERVAL_SECOND_MAX;
 
 
     case INTERVAL_HOUR_SECOND:
-        return count_digits(ival->hour) <= start_prec &&
+        return count_digits(ival->hour) <= ival->start_prec &&
                ival->minute <= INTERVAL_MINUTE_MAX &&
                ival->second <= INTERVAL_SECOND_MAX;
 
 
     default:
-        return 0;
+        return false;
     }
 }
 
@@ -981,6 +987,8 @@ void add_intervals(const Interval *iv1, const Interval *iv2, Interval *out)
 {
   interval_type merged_type= out->m_interval_type;
 
+  get_interval_default_precision(merged_type, &out->start_prec, &out->end_prec);
+
   longlong years= 0, months= 0;
   longlong days= 0, hours= 0, minutes= 0, seconds= 0, micros= 0;
 
@@ -1180,6 +1188,11 @@ static void usec_to_interval(longlong usec, interval_type type, Interval *out)
 
 bool interval_multiply(const Interval *iv, double factor, Interval *result)
 {
+  result->m_interval_type= iv->m_interval_type;
+  result->neg= iv->neg;
+  result->start_prec= iv->start_prec;
+  result->end_prec= iv->end_prec;
+
   if (is_year_month_type(iv->m_interval_type))
   {
     long total_months= iv->year * 12 + iv->month;
@@ -1218,6 +1231,11 @@ bool interval_multiply(const Interval *iv, double factor, Interval *result)
 
 bool interval_divide(const Interval *iv, double divisor, Interval *result)
 {
+  result->m_interval_type= iv->m_interval_type;
+  result->neg= iv->neg;
+  result->start_prec= iv->start_prec;
+  result->end_prec= iv->end_prec;
+
   if (fabs(divisor) < 1e-20)
     return true;
 

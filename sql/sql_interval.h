@@ -204,10 +204,7 @@ int str_to_interval(const char *str, size_t length, Interval *to,
 int Sec6_to_interval(const Sec6 &sec6, Interval *to,
                     enum interval_type itype, uint8 start_prec, uint8 end_prec);
 
-bool is_valid_interval(interval_type itype,
-                          uint8_t start_prec,
-                          uint8_t end_prec,
-                          const Interval *ival);
+bool is_valid_interval(const Interval *ival);
 
 int interval_to_timeval(const Interval* iv, my_timeval* tm, THD *thd);
 

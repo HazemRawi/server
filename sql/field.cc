@@ -7517,7 +7517,7 @@ int Field_interval::get_INTERVAL(Interval *iv)
   iv->m_interval_type= m_interval_type;
   iv->start_prec= start_prec;
   iv->end_prec= end_prec;
-  return is_valid_interval(m_interval_type, start_prec, end_prec, iv);
+  return is_valid_interval(iv);
 }
 
 
@@ -7526,7 +7526,7 @@ int Field_interval::get_INTERVAL(Interval *iv, const uchar *ptr) const
   my_timeval tm;
   get_TIMEVAL(&tm, ptr);
   timeval_to_interval(tm, iv, m_interval_type);
-  return is_valid_interval(m_interval_type, start_prec, end_prec, iv);
+  return is_valid_interval(iv);
 }
 
 
@@ -11181,6 +11181,8 @@ bool Column_definition::fix_attributes_interval(interval_type itype)
    *        • Bits 7-4 : Ending timestamp
    *        • Bits 3-0 : Starting timestamp
    */
+  uint8 start_prec, end_prec;
+  get_interval_default_precision(itype, &start_prec, &end_prec);
   uint8 intv_length= interval_default_length(itype);
 
   if (!(length & 15))
